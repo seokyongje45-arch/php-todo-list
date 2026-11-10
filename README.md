@@ -12,7 +12,7 @@ A clean, modern, responsive, and secure Todo List Web Application built with **P
 - **Styling:** Bootstrap 5.3 + Bootstrap Icons (Flat UI design, clean card typography, badges)
 - **JavaScript:** Vanilla JavaScript (Theme switcher with `localStorage`, delete confirmation modal, auto-dismissing toasts)
 - **Authentication:** Native Laravel session authentication with password hashing (`bcrypt`) and tenant-isolated data
-- **Deployment:** **100% Native Ubuntu Linux** (no Docker, no containerization, no microservice overhead)
+- **Deployment:** Docker Compose with PHP-FPM, Nginx, and MySQL, or native Ubuntu Linux
 
 ---
 
@@ -97,7 +97,102 @@ This project was cleanly upgraded from **Laravel 11 to Laravel 13**:
 
 ---
 
-## 4. Ubuntu Linux Native Installation Guide
+## 4. Docker Compose Production Deployment
+
+The Docker setup uses three containers:
+
+| Service | Image / Target | Public port |
+|---|---|---|
+| Laravel PHP-FPM | `php-todo-list:app` | Internal `9000` only |
+| Nginx | `php-todo-list:nginx` | Host `8081` to container `80` |
+| MySQL | `mysql:8.0` | Internal `3306` only |
+
+Port `8081` is used because the target EC2 server already uses port `80` for
+WordPress and port `8080` for phpMyAdmin.
+
+### 4.1 Prepare the environment
+
+```bash
+git clone https://github.com/chanoudomchim/php-todo-list.git
+cd php-todo-list
+
+cp .env.docker.example .env.docker
+
+# Create secure random application and database secrets.
+APP_KEY_VALUE="$(openssl rand -base64 32 | tr -d '\n')"
+DB_PASSWORD_VALUE="$(openssl rand -hex 24)"
+ROOT_PASSWORD_VALUE="$(openssl rand -hex 24)"
+
+sed -i "s|^APP_KEY=.*|APP_KEY=base64:${APP_KEY_VALUE}|" .env.docker
+sed -i "s|CHANGE_TODO_USER_PASSWORD|${DB_PASSWORD_VALUE}|g" .env.docker
+sed -i "s|CHANGE_MYSQL_ROOT_PASSWORD|${ROOT_PASSWORD_VALUE}|g" .env.docker
+chmod 600 .env.docker
+```
+
+Do not commit or upload `.env.docker`; it contains production secrets.
+
+### 4.2 Build and run on EC2
+
+```bash
+sudo docker compose --env-file .env.docker config --quiet
+sudo docker compose --env-file .env.docker build
+sudo docker compose --env-file .env.docker up -d
+sudo docker compose --env-file .env.docker ps
+```
+
+Laravel migrations run automatically when the app container starts.
+Production seeders are disabled by default. To inspect the services:
+
+```bash
+sudo docker compose --env-file .env.docker logs --tail=100 app nginx db
+curl -I http://127.0.0.1:8081/health
+```
+
+### 4.3 Publish both production images to Docker Hub
+
+This project stores the PHP-FPM and Nginx images in one Docker Hub repository
+using separate `app` and `nginx` tags:
+
+```bash
+export DOCKERHUB_USERNAME=YOUR_DOCKERHUB_USERNAME
+sudo docker login
+
+sudo docker build --target app \
+  -t "${DOCKERHUB_USERNAME}/php-todo-list:app" .
+
+sudo docker build --target nginx \
+  -t "${DOCKERHUB_USERNAME}/php-todo-list:nginx" .
+
+sudo docker push "${DOCKERHUB_USERNAME}/php-todo-list:app"
+sudo docker push "${DOCKERHUB_USERNAME}/php-todo-list:nginx"
+```
+
+Set `DOCKERHUB_USERNAME` in `.env.docker`, then deploy from Docker Hub:
+
+```bash
+sudo docker compose --env-file .env.docker -f compose.prod.yaml pull
+sudo docker compose --env-file .env.docker -f compose.prod.yaml up -d
+sudo docker compose --env-file .env.docker -f compose.prod.yaml ps
+```
+
+### 4.4 Make Laravel public in AWS
+
+Add an EC2 Security Group inbound rule:
+
+| Type | Port | Source | Purpose |
+|---|---:|---|---|
+| Custom TCP | `8081` | `0.0.0.0/0` | Public Laravel website |
+
+Do **not** expose MySQL port `3306`. After the rule is saved, open:
+
+`http://47.131.229.5:8081`
+
+For a stable production address, attach an Elastic IP or use a domain name and
+HTTPS reverse proxy instead of relying on the instance's temporary public IP.
+
+---
+
+## 5. Ubuntu Linux Native Installation Guide
 
 This application is designed to run directly on an **Ubuntu Linux (22.04 LTS / 24.04 LTS / 26.04 LTS)** server without Docker.
 
@@ -351,7 +446,7 @@ php artisan view:cache
 
 ---
 
-## 5. Local Development Quickstart
+## 6. Local Development Quickstart
 
 To run the application locally for quick testing using PHP's built-in server:
 
@@ -378,7 +473,7 @@ Visit `http://localhost:8000` in your browser.
 
 ---
 
-## 6. Running Automated Tests
+## 7. Running Automated Tests
 
 Run the test suite with PHPUnit:
 
@@ -393,7 +488,7 @@ Test coverage includes:
 
 ---
 
-## 7. Security Best Practices Implemented
+## 8. Security Best Practices Implemented
 
 1. **CSRF Protection:** All non-GET forms include `@csrf` token validation.
 2. **SQL Injection Defense:** All database queries utilize Eloquent ORM and prepared PDO statements.
@@ -404,6 +499,6 @@ Test coverage includes:
 
 ---
 
-## 8. License
+## 9. License
 
 Open-sourced software licensed under the [MIT License](LICENSE).

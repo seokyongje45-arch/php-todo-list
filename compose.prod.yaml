@@ -1,0 +1,64 @@
+name: php-todo-list
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: todo-db
+    restart: unless-stopped
+    env_file:
+      - .env.docker
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - todo-network
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  app:
+    image: ${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME}/php-todo-list:app
+    container_name: todo-app
+    restart: unless-stopped
+    env_file:
+      - .env.docker
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - laravel-storage:/var/www/html/storage
+    networks:
+      - todo-network
+    healthcheck:
+      test: ["CMD", "php-fpm", "-t"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  nginx:
+    image: ${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME}/php-todo-list:nginx
+    container_name: todo-nginx
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "${APP_PORT:-8081}:80"
+    networks:
+      - todo-network
+
+volumes:
+  mysql-data:
+  laravel-storage:
+
+networks:
+  todo-network:
+    driver: bridge
+

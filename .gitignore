@@ -22,7 +22,5 @@ yarn-error.log
 !/storage/logs/.gitkeep
 /bootstrap/cache/*
 !/bootstrap/cache/.gitkeep
-Dockerfile
-compose.yml
-.dockerignore
+.env.docker
 
